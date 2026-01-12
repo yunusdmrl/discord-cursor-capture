@@ -489,16 +489,14 @@ void draw(char *name, Display *display, int screen,
 
 	// Draw cursor shape or circles
 	if (cursor_shape) {
-		// Fill entire window with solid color
-		XSetForeground(display, gc, solid_color_pixel);
-		XFillRectangle(display, window, gc, 0, 0, size, size);
+		// Draw cursor body and outline from cursor alpha mask
+		XFixesCursorImage *cursor = XFixesGetCursorImage(display);
+		if (cursor) {
+			int cw = cursor->width;
+			int ch = cursor->height;
 
-		// Outline (if requested) follows cursor alpha mask by dilating pixels
-		if (outline > 0) {
-			XFixesCursorImage *cursor = XFixesGetCursorImage(display);
-			if (cursor) {
-				int cw = cursor->width;
-				int ch = cursor->height;
+			// Outline first (optional)
+			if (outline > 0) {
 				unsigned long outline_pixel = color2.pixel;
 				XSetForeground(display, gc, outline_pixel);
 				int r = outline;
@@ -519,11 +517,22 @@ void draw(char *name, Display *display, int screen,
 						}
 					}
 				}
-				XFree(cursor);
 			}
-			// Re-fill interior to keep solid body color
+
+			// Body: opaque fill on alpha>128
 			XSetForeground(display, gc, solid_color_pixel);
-			XFillRectangle(display, window, gc, 0, 0, size, size);
+			for (int y = 0; y < ch && y < size; y++) {
+				for (int x = 0; x < cw && x < size; x++) {
+					unsigned long pixel = cursor->pixels[y * cw + x];
+					unsigned char alpha = (pixel >> 24) & 0xFF;
+					if (alpha > 128) {
+						int ox = size/2 - cw/2 + x;
+						int oy = size/2 - ch/2 + y;
+						XDrawPoint(display, window, gc, ox, oy);
+					}
+				}
+			}
+			XFree(cursor);
 		}
 
 		// Keep updating position if follow mode
