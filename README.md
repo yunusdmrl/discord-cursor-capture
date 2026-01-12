@@ -29,9 +29,7 @@ sudo make install
 ```bash
 $PATH/find-cursor --cursor-shape --repeat 0 --follow --size 44 --offset 34 -c "#202020" -o 2 -O "#FFFFFF"
 ```
-Press `Ctrl+C` to stop; cleanup is now handled safely.
-
-```
+Press `Ctrl+C` to stop.
 
 ## Dependencies
 - Ubuntu/Debian: `sudo apt install libx11-dev libxcomposite-dev libxdamage-dev libxrender-dev libxfixes-dev libxext-dev`
