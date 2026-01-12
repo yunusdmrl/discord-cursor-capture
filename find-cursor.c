@@ -442,6 +442,16 @@ void draw(char *name, Display *display, int screen,
 	unsigned long valuemask = 0;
 	GC gc = XCreateGC(display, window, valuemask, &values);
 
+	// Adjust defaults for cursor_shape: use dark gray + white outline if none supplied.
+	if (cursor_shape) {
+		if (strcmp(color_name, "black") == 0)
+			strcpy(color_name, "#404040"); // dark gray default
+		if (outline == 0)
+			outline = 2;
+		if (ocolor_name[0] == 0)
+			strcpy(ocolor_name, "#FFFFFF"); // white outline
+	}
+
 	// Get colours.
 	XColor color;
 	int err = XAllocNamedColor(display, colormap, color_name, &color, &color);
@@ -479,10 +489,43 @@ void draw(char *name, Display *display, int screen,
 
 	// Draw cursor shape or circles
 	if (cursor_shape) {
-		// Fill the entire window with solid color (black by default)
+		// Fill entire window with solid color
 		XSetForeground(display, gc, solid_color_pixel);
 		XFillRectangle(display, window, gc, 0, 0, size, size);
-		
+
+		// Outline (if requested) follows cursor alpha mask by dilating pixels
+		if (outline > 0) {
+			XFixesCursorImage *cursor = XFixesGetCursorImage(display);
+			if (cursor) {
+				int cw = cursor->width;
+				int ch = cursor->height;
+				unsigned long outline_pixel = color2.pixel;
+				XSetForeground(display, gc, outline_pixel);
+				int r = outline;
+				for (int y = 0; y < ch && y < size; y++) {
+					for (int x = 0; x < cw && x < size; x++) {
+						unsigned long pixel = cursor->pixels[y * cw + x];
+						unsigned char alpha = (pixel >> 24) & 0xFF;
+						if (alpha > 128) {
+							for (int dy = -r; dy <= r; dy++) {
+								for (int dx = -r; dx <= r; dx++) {
+									if (dx*dx + dy*dy <= r*r) {
+										int ox = size/2 - cw/2 + x + dx;
+										int oy = size/2 - ch/2 + y + dy;
+										XDrawPoint(display, window, gc, ox, oy);
+									}
+								}
+							}
+						}
+					}
+				}
+				XFree(cursor);
+			}
+			// Re-fill interior to keep solid body color
+			XSetForeground(display, gc, solid_color_pixel);
+			XFillRectangle(display, window, gc, 0, 0, size, size);
+		}
+
 		// Keep updating position if follow mode
 		while (g_running && follow) {
 			cursor_center(display, size, &center_x, &center_y);
