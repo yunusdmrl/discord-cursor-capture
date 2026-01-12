@@ -1,5 +1,5 @@
 # Discord Cursor Capture
-Adds a visible overlay cursor so Discord on Linux/X11 can capture it during screen sharing.
+Adds a visible overlay cursor, so that the Discord App on Linux (Only works with X11) can capture it during screen sharing. Therefore, the cursor can be seen by the other party watching the screen share. 
 
 ## Start
 ### Install Build Dependencies
