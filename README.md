@@ -31,10 +31,6 @@ $PATH/find-cursor --cursor-shape --repeat 0 --follow --size 44 --offset 34 -c "#
 ```
 Press `Ctrl+C` to stop.
 
-## Dependencies
-- Ubuntu/Debian: `sudo apt install libx11-dev libxcomposite-dev libxdamage-dev libxrender-dev libxfixes-dev libxext-dev`
-- Fedora: `sudo dnf install libX11-devel libXext-devel libXdamage-devel libXrender-devel libXfixes-devel`
-
 ## Notes
 - Opaque cursor rendering (solid colour, defaults to black).
 - Signal-safe cleanup on `Ctrl+C` to avoid cursor residue.
