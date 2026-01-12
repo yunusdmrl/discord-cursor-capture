@@ -1,70 +1,49 @@
-Simple XLib program to highlight the cursor position. This is similar to the
-feature found in Windows XP (and possibly later?)
+# Discord Cursor Capture
 
-![screenshot.gif](https://raw.githubusercontent.com/arp242/find-cursor/master/screenshot.gif)
+Creates an overlay pointer so that the Discord app on Linux (X11 only) can capture it during screen sharing.
 
-Installation
-------------
+Discord on Linux doesn't capture the actual cursor during screen sharing. This tool draws a cursor overlay that Discord can see and share.
 
-Compile it by typing `make`, install it with `make install`. There
-[packages][pkg] for some platforms as well.
+## Installation
 
-You'll need to install some X11 header files on some systems; e.g. on
-Ubuntu/Debian: `libx11-dev`, `libxcomposite-dev`, `libxdamage-dev`, and
-`libxrender-dev`. For Fedora 36 you might need to install following:
-`libXext-devel`, `libXdamage-devel`, `libXrender-devel`, `libXext-devel`.
+Compile with `make`, install with `make install`.
 
-There is also a Docker container at [klo2k/find-cursor][d] if you want it. Note
-this is NOT maintained (or supported) by me. See #19.
+### Dependencies
 
-[d]: https://hub.docker.com/r/klo2k/find-cursor
-[pkg]: https://repology.org/project/find-cursor/versions
+**Ubuntu/Debian:**
+```bash
+sudo apt install libx11-dev libxcomposite-dev libxdamage-dev libxrender-dev libxfixes-dev libxext-dev
+```
 
-Usage
------
+**Fedora:**
+```bash
+sudo dnf install libX11-devel libXext-devel libXdamage-devel libXrender-devel libXfixes-devel
+```
 
-See `find-cursor -h` to see some options for controlling the appearance.
+## Usage
 
-Launching
----------
+```bash
+find-cursor --cursor-shape --repeat 0 --follow --size 70 --offset 35
+```
 
-You will want to map a key in your window manager to run `find-cursor`. You can
-also use [`xbindkeys`](xbindkeys), which should work with `$any` window manager.
+This draws your actual cursor shape as an overlay that follows your mouse. Press `Ctrl+C` to stop cleanly.
 
-I run it with [`xcape`][xcape]:
+See `find-cursor -h` for all options.
 
-    xcape -e 'Control_L=Escape;Shift_L=KP_Add'
+## Toggle Script
 
-When `Left Shift` is tapped a `Keypad Add` is sent; I configured my window
-manager to launch `find-cursor` with that.
+```bash
+#!/bin/sh
+if pgrep find-cursor; then
+    pkill find-cursor
+else
+    find-cursor --cursor-shape --repeat 0 --follow --size 70 --offset 35 &
+fi
+```
 
-I don't have a numpad on my keyboard; you can also use `F13` or some other
-unused key.
+## Credits
 
-You can use a little wrapper script if you want a "toggle" switch for when
-repeating forever:
+Based on [find-cursor](https://github.com/arp242/find-cursor) by Martin Tournoij (arp242), licensed under MIT.
 
-    #!/bin/sh
-    if pgrep find-cursor; then
-        pkill find-cursor
-    else
-        find-cursor -r0 &
-    fi
-
-Compton
--------
-
-You may want to disable shadows if you use compton or some other composite
-manager; for example for compton start it with:
-
-    compton --shadow-exclude "class_g = 'find-cursor'"
-
-Or, perhaps even better, disable it for all shaped windows:
-
-    compton --shadow-exclude 'bounding_shaped'
-
-You can also put that in the compton config file. Other managers might have
-different options/flags.
-
-[xcape]: https://github.com/alols/xcape
-[xbindkeys]: http://www.nongnu.org/xbindkeys/xbindkeys.html
+Modifications:
+- Fixed signal handler for clean X11 cleanup on Ctrl+C (prevents cursor residue)
