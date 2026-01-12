@@ -29,6 +29,8 @@ sudo make install
 ```bash
 $PATH/find-cursor --cursor-shape --repeat 0 --follow --size 44 --offset 34 -c "#202020" -o 2 -O "#FFFFFF"
 ```
+Change --size and --offset accordingly to your cursor.
+
 Press `Ctrl+C` to stop.
 
 ## Notes
