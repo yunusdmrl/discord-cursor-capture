@@ -370,14 +370,25 @@ void draw(char *name, Display *display, int screen,
 		if (cursor) {
 			int cw = cursor->width;
 			int ch = cursor->height;
+			int mask_r = outline > 0 ? outline : 0;
 			for (int y = 0; y < ch && y < size; y++) {
 				for (int x = 0; x < cw && x < size; x++) {
 					unsigned long pixel = cursor->pixels[y * cw + x];
 					unsigned char alpha = (pixel >> 24) & 0xFF;
 					if (alpha > 128) {
-						XDrawPoint(display, shape_mask, part_shape,
-							size/2 - cw/2 + x,
-							size/2 - ch/2 + y);
+						// Base point
+						int bx = size/2 - cw/2 + x;
+						int by = size/2 - ch/2 + y;
+						XDrawPoint(display, shape_mask, part_shape, bx, by);
+						// Expand mask to include outline thickness
+						for (int dy = -mask_r; dy <= mask_r; dy++) {
+							for (int dx = -mask_r; dx <= mask_r; dx++) {
+								if (dx*dx + dy*dy <= mask_r*mask_r) {
+									XDrawPoint(display, shape_mask, part_shape,
+										bx + dx, by + dy);
+								}
+							}
+						}
 					}
 				}
 			}
@@ -442,10 +453,10 @@ void draw(char *name, Display *display, int screen,
 	unsigned long valuemask = 0;
 	GC gc = XCreateGC(display, window, valuemask, &values);
 
-	// Adjust defaults for cursor_shape: use dark gray + white outline if none supplied.
+	// Adjust defaults for cursor_shape: use very dark gray + white outline if none supplied.
 	if (cursor_shape) {
 		if (strcmp(color_name, "black") == 0)
-			strcpy(color_name, "#404040"); // dark gray default
+			strcpy(color_name, "#202020"); // very dark gray default
 		if (outline == 0)
 			outline = 2;
 		if (ocolor_name[0] == 0)
@@ -489,6 +500,12 @@ void draw(char *name, Display *display, int screen,
 
 	// Draw cursor shape or circles
 	if (cursor_shape) {
+		// Ensure background matches body color (opaque) for argb window
+		if (use_argb) {
+			XSetWindowBackground(display, window, solid_color_pixel);
+			XClearWindow(display, window);
+		}
+
 		// Draw cursor body and outline from cursor alpha mask
 		XFixesCursorImage *cursor = XFixesGetCursorImage(display);
 		if (cursor) {
