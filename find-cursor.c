@@ -329,8 +329,9 @@ void draw(char *name, Display *display, int screen,
 		XMatchVisualInfo(display, screen, 32, TrueColor, &vinfo);
 		window_attr.colormap = XCreateColormap(display, DefaultRootWindow(display), vinfo.visual, AllocNone);
 		colormap = window_attr.colormap;
-		window_attr.background_pixel = 0;
-		window_attr.border_pixel = 0;
+		// Opaque black background (alpha 255)
+		window_attr.background_pixel = 0xFF000000;
+		window_attr.border_pixel = 0xFF000000;
 		window = XCreateWindow(display, XRootWindow(display, screen),
 			center_x,                               // x position
 			center_y,                               // y position
@@ -449,6 +450,9 @@ void draw(char *name, Display *display, int screen,
 		usage(name);
 		exit(1);
 	}
+	unsigned long solid_color_pixel = color.pixel;
+	if (use_argb)
+		solid_color_pixel = 0xFF000000 | (color.pixel & 0x00FFFFFF);
 
 	XColor color2;
 	if (outline > 0) {
@@ -464,37 +468,20 @@ void draw(char *name, Display *display, int screen,
 			usage(name);
 			exit(1);
 		}
+		if (use_argb)
+			color2.pixel = 0xFF000000 | (color2.pixel & 0x00FFFFFF);
 	}
 	else {
 		// Set colour only once if not outline.
 		XSetLineAttributes(display, gc, line_width, LineSolid, CapButt, JoinBevel);
-		XSetForeground(display, gc, color.pixel);
+		XSetForeground(display, gc, solid_color_pixel);
 	}
 
 	// Draw cursor shape or circles
 	if (cursor_shape) {
-		// Get current cursor image and draw it
-		XFixesCursorImage *cursor = XFixesGetCursorImage(display);
-		if (cursor) {
-			// Create a pixmap for the cursor
-			int cw = cursor->width;
-			int ch = cursor->height;
-			
-			// Draw the cursor pixels
-			for (int y = 0; y < ch && y < size; y++) {
-				for (int x = 0; x < cw && x < size; x++) {
-					unsigned long pixel = cursor->pixels[y * cw + x];
-					unsigned char alpha = (pixel >> 24) & 0xFF;
-					if (alpha > 128) {
-						XSetForeground(display, gc, pixel & 0x00FFFFFF);
-						XDrawPoint(display, window, gc, 
-							size/2 - cw/2 + x, 
-							size/2 - ch/2 + y);
-					}
-				}
-			}
-			XFree(cursor);
-		}
+		// Fill the entire window with solid color (black by default)
+		XSetForeground(display, gc, solid_color_pixel);
+		XFillRectangle(display, window, gc, 0, 0, size, size);
 		
 		// Keep updating position if follow mode
 		while (g_running && follow) {

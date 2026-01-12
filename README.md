@@ -1,49 +1,29 @@
 # Discord Cursor Capture
+Adds a visible overlay cursor so Discord on Linux/X11 can capture it during screen sharing.
 
-Creates an overlay pointer so that the Discord app on Linux (X11 only) can capture it during screen sharing.
-
-Discord on Linux doesn't capture the actual cursor during screen sharing. This tool draws a cursor overlay that Discord can see and share.
-
-## Installation
-
-Compile with `make`, install with `make install`.
-
-### Dependencies
-
-**Ubuntu/Debian:**
+## Quick start
 ```bash
-sudo apt install libx11-dev libxcomposite-dev libxdamage-dev libxrender-dev libxfixes-dev libxext-dev
-```
-
-**Fedora:**
-```bash
-sudo dnf install libX11-devel libXext-devel libXdamage-devel libXrender-devel libXfixes-devel
-```
-
-## Usage
-
-```bash
+make
+sudo make install    # installs /usr/local/bin/find-cursor
 find-cursor --cursor-shape --repeat 0 --follow --size 70 --offset 35
 ```
+Press `Ctrl+C` to stop; cleanup is now handled safely.
 
-This draws your actual cursor shape as an overlay that follows your mouse. Press `Ctrl+C` to stop cleanly.
-
-See `find-cursor -h` for all options.
-
-## Toggle Script
-
+### Handy alias (bash)
 ```bash
-#!/bin/sh
-if pgrep find-cursor; then
-    pkill find-cursor
-else
-    find-cursor --cursor-shape --repeat 0 --follow --size 70 --offset 35 &
-fi
+echo "alias dcursor='find-cursor --cursor-shape --repeat 0 --follow --size 70 --offset 35'" >> ~/.bashrc
+source ~/.bashrc
 ```
 
+## Dependencies
+- Ubuntu/Debian: `sudo apt install libx11-dev libxcomposite-dev libxdamage-dev libxrender-dev libxfixes-dev libxext-dev`
+- Fedora: `sudo dnf install libX11-devel libXext-devel libXdamage-devel libXrender-devel libXfixes-devel`
+
+## Notes
+- Opaque cursor rendering (solid color, defaults to black).
+- Signal-safe cleanup on `Ctrl+C` to avoid residue windows.
+- Use `-c <color>` to set a different solid cursor color.
+
 ## Credits
-
-Based on [find-cursor](https://github.com/arp242/find-cursor) by Martin Tournoij (arp242), licensed under MIT.
-
-Modifications:
-- Fixed signal handler for clean X11 cleanup on Ctrl+C (prevents cursor residue)
+Based on [find-cursor](https://github.com/arp242/find-cursor) by Martin Tournoij (arp242), MIT licensed.
+This fork focuses on Discord capture usability and cleanup fixes.
