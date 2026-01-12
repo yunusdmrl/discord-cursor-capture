@@ -7,6 +7,7 @@
 #define _DEFAULT_SOURCE
 
 #include <getopt.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,12 +21,48 @@
 #include <X11/extensions/Xrender.h>
 #include <X11/extensions/shape.h>
 
+// Global variables for signal handler cleanup
+static Display *g_display = NULL;
+static Window g_window = 0;
+static volatile sig_atomic_t g_running = 1;
+static volatile sig_atomic_t g_signal_received = 0;
+
+void signal_handler(int sig) {
+	(void)sig;  // unused
+	g_running = 0;
+	g_signal_received = 1;
+}
+
+void cleanup_x11(void) {
+	if (g_display && g_window) {
+		XUnmapWindow(g_display, g_window);
+		XDestroyWindow(g_display, g_window);
+		XSync(g_display, False);
+		g_window = 0;
+	}
+	if (g_display) {
+		XCloseDisplay(g_display);
+		g_display = NULL;
+	}
+}
+
+void setup_signal_handlers(void) {
+	struct sigaction sa;
+	sa.sa_handler = signal_handler;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = 0;
+	sigaction(SIGTERM, &sa, NULL);
+	sigaction(SIGINT, &sa, NULL);
+	sigaction(SIGHUP, &sa, NULL);
+}
+
 void usage(char *name);
 int parse_num(int ch, char *opt, char *name);
 int pointer_screen(char *name, Display *display);
 void draw(char *name, Display *display, int screen,
 	int size, int distance, int wait, int line_width, char *color_name,
-	int follow, int transparent, int grow, int outline, char *ocolor_name);
+	int follow, int transparent, int grow, int outline, char *ocolor_name,
+	int cursor_shape, int offset);
 
 static struct option longopts[] = {
 	{"help",          no_argument,       NULL, 'h'},
@@ -40,6 +77,8 @@ static struct option longopts[] = {
 	{"outline",       optional_argument, NULL, 'o'}, // Optional for compat, as previously it was hard-coded to 2px.
 	{"repeat",        required_argument, NULL, 'r'},
 	{"outline-color", required_argument, NULL, 'O'},
+	{"cursor-shape",  no_argument,       NULL, 'C'},
+	{"offset",        required_argument, NULL, 'x'},
 	{NULL, 0, NULL, 0}
 };
 
@@ -68,10 +107,14 @@ void usage(char *name) {
 	"                      it's disabled by default.\n"
 	"  -o, --outline       Width in pixels of outline; uses 2px if no value is given.\n"
 	"                      Helps visibility on all backgrounds.\n"
-	"  -O, --outline-color Color of outline; if omitted it will automatically use\n"
+"  -O, --outline-color Color of outline; if omitted it will automatically use\n"
 	"                      the opposite color. No effect if -o isn't set.\n"
 	"  -r, --repeat        Number of times to repeat the animation; use 0 to repeat\n"
 	"                      indefinitely.\n"
+"  -C, --cursor-shape  Draw the current cursor shape instead of circles.\n"
+	"                      Useful for blending in with the actual cursor.\n"
+	"  -x, --offset        Offset in pixels (south-east direction). Use with\n"
+	"                      --cursor-shape to position next to actual cursor.\n"
 	"\n"
 	"Examples:\n"
 	"  The defaults:\n"
@@ -109,6 +152,9 @@ int parse_num(int ch, char *opt, char *name) {
 }
 
 int main(int argc, char* argv[]) {
+	// Setup signal handlers for clean exit
+	setup_signal_handlers();
+
 	// Parse options
 	int size = 320;
 	int distance = 40;
@@ -121,10 +167,12 @@ int main(int argc, char* argv[]) {
 	int grow = 0;
 	int outline = 0;
 	int repeat = 0;
+	int cursor_shape = 0;
+	int offset = 0;
 
 	extern int optopt;
 	int ch;
-	while ((ch = getopt_long(argc, argv, ":hs:d:w:l:c:r:ftgo:O:", longopts, NULL)) != -1)
+	while ((ch = getopt_long(argc, argv, ":hs:d:w:l:c:r:ftgo:O:Cx:", longopts, NULL)) != -1)
 		switch (ch) {
 		case 's':
 			size = parse_num(ch, optarg, argv[0]);
@@ -164,6 +212,12 @@ int main(int argc, char* argv[]) {
 			if (repeat == 0)
 				repeat = -1;
 			break;
+		case 'C':
+			cursor_shape = 1;
+			break;
+		case 'x':
+			offset = parse_num(ch, optarg, argv[0]);
+			break;
 		case ':':
 			switch (optopt) {
 			case 'o':
@@ -195,6 +249,7 @@ int main(int argc, char* argv[]) {
 		fprintf(stderr, "%s: cannot open display '%s'\n\n", argv[0], display_name);
 		exit(1);
 	}
+	g_display = display;
 
 	int shape_event_base, shape_error_base;
 	if (!XShapeQueryExtension(display, &shape_event_base, &shape_error_base)) {
@@ -203,13 +258,16 @@ int main(int argc, char* argv[]) {
 	}
 
 	// Actually draw.
-	do
+	do {
+		if (!g_running) break;
 		draw(argv[0], display, pointer_screen(argv[0], display),
 			size, distance, wait, line_width, color_name,
-			follow, transparent, grow, outline, ocolor_name);
-	while (repeat == -1 || repeat--);
+			follow, transparent, grow, outline, ocolor_name,
+			cursor_shape, offset);
+	} while (g_running && (repeat == -1 || repeat--));
 
-	XCloseDisplay(display);
+	cleanup_x11();
+	return 0;
 }
 
 // Identify which screen the cursor is on.
@@ -248,11 +306,15 @@ void cursor_center(Display *display, int size, int *x, int *y) {
 
 void draw(char *name, Display *display, int screen,
 	int size, int distance, int wait, int line_width, char *color_name,
-	int follow, int transparent, int grow, int outline, char *ocolor_name
+	int follow, int transparent, int grow, int outline, char *ocolor_name,
+	int cursor_shape, int offset
 ) {
 	// Get the mouse cursor position and size.
 	int center_x, center_y;
 	cursor_center(display, size, &center_x, &center_y);
+	// Apply offset (south-east direction)
+	center_x += offset;
+	center_y += offset;
 
 	// Create a window at the mouse position
 	Window window;
@@ -260,24 +322,27 @@ void draw(char *name, Display *display, int screen,
 	window_attr.override_redirect = 1;
 
 	Colormap colormap = DefaultColormap(display, screen);
-	if (transparent) {
-		XVisualInfo vinfo;
+	XVisualInfo vinfo;
+	int use_argb = transparent || cursor_shape;
+	
+	if (use_argb) {
 		XMatchVisualInfo(display, screen, 32, TrueColor, &vinfo);
 		window_attr.colormap = XCreateColormap(display, DefaultRootWindow(display), vinfo.visual, AllocNone);
 		colormap = window_attr.colormap;
 		window_attr.background_pixel = 0;
+		window_attr.border_pixel = 0;
 		window = XCreateWindow(display, XRootWindow(display, screen),
 			center_x,                               // x position
 			center_y,                               // y position
 			size, size,                             // width, height
-			4,                                      // border width
+			0,                                      // border width
 			vinfo.depth,                            // depth
-			CopyFromParent,                         // class
+			InputOutput,                            // class
 			vinfo.visual,                           // visual
 			CWColormap | CWBorderPixel | CWBackPixel | CWOverrideRedirect, // valuemask
 			&window_attr);                          // attributes
 	}
-	else
+	else {
 		window = XCreateWindow(display, XRootWindow(display, screen),
 			center_x,                              // x position
 			center_y,                              // y position
@@ -288,23 +353,49 @@ void draw(char *name, Display *display, int screen,
 			DefaultVisual(display, screen),        // visual
 			CWOverrideRedirect,                    // valuemask
 			&window_attr);                         // attributes
+	}
 
-	// Make round shaped window.
+	// Make shaped window - circle for normal mode, cursor shape for cursor_shape mode
 	XGCValues xgcv;
 	Pixmap shape_mask = XCreatePixmap(display, window, size, size, 1);
 	GC part_shape = XCreateGC(display, shape_mask, 0, &xgcv);
 	XSetForeground(display, part_shape, 0);
 	XFillRectangle(display, shape_mask, part_shape, 0, 0, size, size);
 	XSetForeground(display, part_shape, 1);
-	XFillArc(display, shape_mask, part_shape,
-		0, 0,         // x, y position
-		size, size,   // Size
-		0, 360 * 64); // Make it a full circle
+	
+	if (cursor_shape) {
+		// Get cursor image and create shape from its alpha channel
+		XFixesCursorImage *cursor = XFixesGetCursorImage(display);
+		if (cursor) {
+			int cw = cursor->width;
+			int ch = cursor->height;
+			for (int y = 0; y < ch && y < size; y++) {
+				for (int x = 0; x < cw && x < size; x++) {
+					unsigned long pixel = cursor->pixels[y * cw + x];
+					unsigned char alpha = (pixel >> 24) & 0xFF;
+					if (alpha > 128) {
+						XDrawPoint(display, shape_mask, part_shape,
+							size/2 - cw/2 + x,
+							size/2 - ch/2 + y);
+					}
+				}
+			}
+			XFree(cursor);
+		}
+	} else {
+		XFillArc(display, shape_mask, part_shape,
+			0, 0,         // x, y position
+			size, size,   // Size
+			0, 360 * 64); // Make it a full circle
+	}
 	XFreeGC(display, part_shape);
 
 	XShapeCombineMask(display, window, ShapeBounding, 0, 0, shape_mask, ShapeSet);
 	XShapeCombineMask(display, window, ShapeClip,     0, 0, shape_mask, ShapeSet);
 	XFreePixmap(display, shape_mask);
+
+	// Store window globally for signal handler cleanup
+	g_window = window;
 
 	// Input region is small so we can pass input events.
 	XRectangle rect;
@@ -380,43 +471,83 @@ void draw(char *name, Display *display, int screen,
 		XSetForeground(display, gc, color.pixel);
 	}
 
-	// Draw the circles
-	int i = 1;
-	for (i=1; i<=size; i+=distance) {
-		if (follow)
-			XClearWindow(display, window);
+	// Draw cursor shape or circles
+	if (cursor_shape) {
+		// Get current cursor image and draw it
+		XFixesCursorImage *cursor = XFixesGetCursorImage(display);
+		if (cursor) {
+			// Create a pixmap for the cursor
+			int cw = cursor->width;
+			int ch = cursor->height;
+			
+			// Draw the cursor pixels
+			for (int y = 0; y < ch && y < size; y++) {
+				for (int x = 0; x < cw && x < size; x++) {
+					unsigned long pixel = cursor->pixels[y * cw + x];
+					unsigned char alpha = (pixel >> 24) & 0xFF;
+					if (alpha > 128) {
+						XSetForeground(display, gc, pixel & 0x00FFFFFF);
+						XDrawPoint(display, window, gc, 
+							size/2 - cw/2 + x, 
+							size/2 - ch/2 + y);
+					}
+				}
+			}
+			XFree(cursor);
+		}
+		
+		// Keep updating position if follow mode
+		while (g_running && follow) {
+			cursor_center(display, size, &center_x, &center_y);
+			XMoveWindow(display, window, center_x + offset, center_y + offset);
+			XSync(display, False);
+			usleep(wait * 100);
+		}
+		if (!follow) {
+			XSync(display, False);
+			usleep(wait * 100 * (size / (distance > 0 ? distance : 1)));
+		}
+	} else {
+		// Draw the circles
+		int i = 1;
+		for (i=1; i<=size && g_running; i+=distance) {
+			if (follow)
+				XClearWindow(display, window);
 
-		int cs = grow ? i : size - i;
+			int cs = grow ? i : size - i;
 
-		if (outline > 0) {
-			XSetLineAttributes(display, gc, line_width+outline, LineSolid, CapButt, JoinBevel);
-			XSetForeground(display, gc, color2.pixel);
+			if (outline > 0) {
+				XSetLineAttributes(display, gc, line_width+outline, LineSolid, CapButt, JoinBevel);
+				XSetForeground(display, gc, color2.pixel);
+				XDrawArc(display, window, gc,
+					size/2 - cs/2, size/2 - cs/2, // x, y position
+					cs, cs,                       // Size
+					0, 360 * 64);                 // Make it a full circle
+
+				// Set color back for the normal circle.
+				XSetLineAttributes(display, gc, line_width, LineSolid, CapButt, JoinBevel);
+				XSetForeground(display, gc, color.pixel);
+			}
+
 			XDrawArc(display, window, gc,
 				size/2 - cs/2, size/2 - cs/2, // x, y position
 				cs, cs,                       // Size
 				0, 360 * 64);                 // Make it a full circle
 
-			// Set color back for the normal circle.
-			XSetLineAttributes(display, gc, line_width, LineSolid, CapButt, JoinBevel);
-			XSetForeground(display, gc, color.pixel);
-		}
-
-		XDrawArc(display, window, gc,
-			size/2 - cs/2, size/2 - cs/2, // x, y position
-			cs, cs,                       // Size
-			0, 360 * 64);                 // Make it a full circle
-
 		if (follow) {
-			cursor_center(display, size, &center_x, &center_y);
-			XMoveWindow(display, window, center_x, center_y);
-		}
+				cursor_center(display, size, &center_x, &center_y);
+				XMoveWindow(display, window, center_x + offset, center_y + offset);
+			}
 
-		XSync(display, False);
-		usleep(wait * 100);
+			XSync(display, False);
+			usleep(wait * 100);
+		}
 	}
 
 	XFreeGC(display, gc);
+	g_window = 0;
 	XDestroyWindow(display, window);
+	XFlush(display);
 }
 
 
